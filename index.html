@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rasengan Simulator - Naruto Style</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0c0c1d 0%, #1a1a3e 50%, #0c0c1d 100%);
+        }
+
+        #videoContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: none;
+        }
+
+        #inputVideo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            opacity: 0.3;
+        }
+
+        #outputCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 191, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 191, 255, 0.3), 
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(0, 191, 255, 0.3);
+            min-width: 280px;
+        }
+
+        h1 {
+            color: #00BFFF;
+            font-size: 24px;
+            margin-bottom: 15px;
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.8);
+            font-weight: 600;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #00BFFF 0%, #1E90FF 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 191, 255, 0.4);
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 191, 255, 0.6);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.stop {
+            background: linear-gradient(135deg, #FF6B6B 0%, #FF4757 100%);
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        #status {
+            color: #00BFFF;
+            margin-top: 10px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .info-text {
+            color: rgba(0, 191, 255, 0.8);
+            font-size: 12px;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00BFFF;
+            font-size: 24px;
+            display: none;
+            z-index: 200;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(0, 191, 255, 0.8);
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 191, 255, 0.3);
+            border-top: 4px solid #00BFFF;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+            box-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Loading Chakra...</div>
+    </div>
+
+    <div id="ui">
+        <h1>🌀 Rasengan Simulator</h1>
+        <button class="btn" id="startBtn" onclick="startCamera()">▶ Start Camera</button>
+        <button class="btn stop" id="stopBtn" onclick="stopCamera()" style="display: none;">⏹ Stop Camera</button>
+        <div id="status">Status: Ready</div>
+        
+        <div class="info-text">
+            Show one hand to create Rasengan.<br>
+            Rotate your hand to charge it up!<br>
+            Show two hands for GIANT RASENGAN!
+        </div>
+    </div>
+
+    <div id="videoContainer">
+        <video id="inputVideo" playsinline></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <script>
+        let hands;
+        let camera;
+        let videoElement;
+        let canvasElement;
+        let canvasCtx;
+        let isRunning = false;
+        let particles = [];
+        let shockwaves = [];
+        let rasenganData = [];
+
+        // Particle class for swirl effect
+        class Particle {
+            constructor(x, y, radius, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = color;
+                this.angle = Math.random() * Math.PI * 2;
+                this.speed = Math.random() * 0.1 + 0.05;
+                this.distance = Math.random() * radius;
+                this.life = 1;
+                this.decay = Math.random() * 0.02 + 0.01;
+            }
+
+            update(centerX, centerY, baseRadius, rotationSpeed) {
+                this.angle += this.speed + rotationSpeed;
+                this.distance = Math.min(this.distance + 0.5, baseRadius);
+                this.life -= this.decay;
+                
+                this.x = centerX + Math.cos(this.angle) * this.distance;
+                this.y = centerY + Math.sin(this.angle) * this.distance;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color}, ${this.life})`;
+                ctx.fill();
+            }
+        }
+
+        // Shockwave class
+        class Shockwave {
+            constructor(x, y, maxRadius) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = maxRadius;
+                this.life = 1;
+                this.speed = 2;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.life -= 0.02;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(0, 191, 255, ${this.life * 0.5})`;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+        }
+
+        function init() {
+            videoElement = document.getElementById('inputVideo');
+            canvasElement = document.getElementById('outputCanvas');
+            canvasCtx = canvasElement.getContext('2d');
+            
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+
+        async function startCamera() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('status').textContent = 'Status: Channeling Chakra...';
+            
+            try {
+                hands = new Hands({
+                    locateFile: (path) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${path}`;
+                    }
+                });
+                
+                hands.setOptions({
+                    maxNumHands: 2,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                hands.onResults(onResults);
+                
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({image: videoElement});
+                    },
+                    width: 1280,
+                    height: 720
+                });
+                
+                await camera.start();
+                
+                document.getElementById('videoContainer').style.display = 'block';
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('status').textContent = 'Status: Chakra Active';
+                
+                isRunning = true;
+                animate();
+                
+            } catch (error) {
+                console.error('Error starting camera:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('status').textContent = 'Status: Error - ' + error.message;
+                alert('Error accessing camera. Please ensure you have granted camera permissions.');
+            }
+        }
+
+        function stopCamera() {
+            if (camera) {
+                camera.stop();
+            }
+            
+            document.getElementById('videoContainer').style.display = 'none';
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('status').textContent = 'Status: Stopped';
+            
+            isRunning = false;
+            particles = [];
+            shockwaves = [];
+            rasenganData = [];
+        }
+
+        function onResults(results) {
+            if (!isRunning) return;
+            
+            rasenganData = [];
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const hands = results.multiHandLandmarks;
+                
+                hands.forEach((hand, index) => {
+                    // Get palm center (landmark 9 is middle finger MCP)
+                    const palmCenter = hand[9];
+                    const flippedPalm = { x: 1 - palmCenter.x, y: palmCenter.y };
+                    
+                    // Calculate hand rotation using wrist and middle finger
+                    const wrist = hand[0];
+                    const middleFinger = hand[9];
+                    const flippedWrist = { x: 1 - wrist.x, y: wrist.y };
+                    const flippedMiddle = { x: 1 - middleFinger.x, y: middleFinger.y };
+                    
+                    // Calculate angle for rotation detection
+                    const angle = Math.atan2(flippedMiddle.y - flippedWrist.y, flippedMiddle.x - flippedWrist.x);
+                    
+                    rasenganData.push({
+                        x: flippedPalm.x * canvasElement.width,
+                        y: flippedPalm.y * canvasElement.height,
+                        angle: angle,
+                        handIndex: index
+                    });
+                });
+            }
+        }
+
+        function animate() {
+            if (!isRunning) return;
+            
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Update and draw shockwaves
+            shockwaves = shockwaves.filter(sw => sw.life > 0);
+            shockwaves.forEach(sw => {
+                sw.update();
+                sw.draw(canvasCtx);
+            });
+            
+            if (rasenganData.length === 1) {
+                // Single Rasengan
+                drawRasengan(rasenganData[0], false);
+            } else if (rasenganData.length === 2) {
+                // Giant Rasengan
+                drawGiantRasengan(rasenganData[0], rasenganData[1]);
+            }
+            
+            requestAnimationFrame(animate);
+        }
+
+        function drawRasengan(data, isGiant) {
+            const baseRadius = isGiant ? 150 : 80;
+            const rotationSpeed = Math.abs(data.angle) * 0.1;
+            const currentRadius = baseRadius + (rotationSpeed * 100);
+            
+            // Add particles
+            if (Math.random() < 0.3) {
+                for (let i = 0; i < 5; i++) {
+                    particles.push(new Particle(
+                        data.x, 
+                        data.y, 
+                        currentRadius, 
+                        '0, 191, 255'
+                    ));
+                }
+            }
+            
+            // Add shockwave when growing
+            if (currentRadius > baseRadius + 50 && Math.random() < 0.1) {
+                shockwaves.push(new Shockwave(data.x, data.y, currentRadius * 1.5));
+            }
+            
+            // Draw outer glow
+            const gradient = canvasCtx.createRadialGradient(
+                data.x, data.y, 0,
+                data.x, data.y, currentRadius * 1.5
+            );
+            gradient.addColorStop(0, 'rgba(0, 191, 255, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(30, 144, 255, 0.4)');
+            gradient.addColorStop(1, 'rgba(0, 191, 255, 0)');
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(data.x, data.y, currentRadius * 1.5, 0, Math.PI * 2);
+            canvasCtx.fillStyle = gradient;
+            canvasCtx.fill();
+            
+            // Draw core
+            const coreGradient = canvasCtx.createRadialGradient(
+                data.x, data.y, 0,
+                data.x, data.y, currentRadius
+            );
+            coreGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+            coreGradient.addColorStop(0.3, 'rgba(0, 191, 255, 0.8)');
+            coreGradient.addColorStop(0.7, 'rgba(30, 144, 255, 0.6)');
+            coreGradient.addColorStop(1, 'rgba(0, 191, 255, 0.2)');
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(data.x, data.y, currentRadius, 0, Math.PI * 2);
+            canvasCtx.fillStyle = coreGradient;
+            canvasCtx.fill();
+            
+            // Draw spiral lines
+            canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            canvasCtx.lineWidth = 2;
+            for (let i = 0; i < 3; i++) {
+                canvasCtx.beginPath();
+                for (let angle = 0; angle < Math.PI * 4; angle += 0.1) {
+                    const radius = (angle / (Math.PI * 4)) * currentRadius;
+                    const x = data.x + Math.cos(angle + data.angle + i * Math.PI * 2/3) * radius;
+                    const y = data.y + Math.sin(angle + data.angle + i * Math.PI * 2/3) * radius;
+                    
+                    if (angle === 0) {
+                        canvasCtx.moveTo(x, y);
+                    } else {
+                        canvasCtx.lineTo(x, y);
+                    }
+                }
+                canvasCtx.stroke();
+            }
+            
+            // Update and draw particles
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.update(data.x, data.y, currentRadius, rotationSpeed);
+                p.draw(canvasCtx);
+            });
+            
+            // Limit particles
+            if (particles.length > 200) {
+                particles = particles.slice(-200);
+            }
+        }
+
+        function drawGiantRasengan(data1, data2) {
+            // Calculate center point between two hands
+            const centerX = (data1.x + data2.x) / 2;
+            const centerY = (data1.y + data2.y) / 2;
+            
+            // Calculate distance between hands
+            const distance = Math.sqrt(
+                Math.pow(data2.x - data1.x, 2) + 
+                Math.pow(data2.y - data1.y, 2)
+            );
+            
+            const baseRadius = Math.max(150, distance * 0.8);
+            const rotationSpeed = (Math.abs(data1.angle) + Math.abs(data2.angle)) * 0.15;
+            const currentRadius = baseRadius + (rotationSpeed * 150);
+            
+            // Add more particles for giant rasengan
+            if (Math.random() < 0.5) {
+                for (let i = 0; i < 10; i++) {
+                    particles.push(new Particle(
+                        centerX, 
+                        centerY, 
+                        currentRadius, 
+                        '0, 191, 255'
+                    ));
+                }
+            }
+            
+            // Add shockwaves more frequently
+            if (currentRadius > baseRadius + 100 && Math.random() < 0.2) {
+                shockwaves.push(new Shockwave(centerX, centerY, currentRadius * 2));
+            }
+            
+            // Draw massive outer glow
+            const gradient = canvasCtx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, currentRadius * 2
+            );
+            gradient.addColorStop(0, 'rgba(0, 191, 255, 0.9)');
+            gradient.addColorStop(0.3, 'rgba(30, 144, 255, 0.6)');
+            gradient.addColorStop(0.7, 'rgba(0, 191, 255, 0.3)');
+            gradient.addColorStop(1, 'rgba(0, 191, 255, 0)');
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(centerX, centerY, currentRadius * 2, 0, Math.PI * 2);
+            canvasCtx.fillStyle = gradient;
+            canvasCtx.fill();
+            
+            // Draw core with intense energy
+            const coreGradient = canvasCtx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, currentRadius
+            );
+            coreGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            coreGradient.addColorStop(0.2, 'rgba(0, 191, 255, 0.9)');
+            coreGradient.addColorStop(0.5, 'rgba(30, 144, 255, 0.7)');
+            coreGradient.addColorStop(0.8, 'rgba(0, 191, 255, 0.4)');
+            coreGradient.addColorStop(1, 'rgba(0, 191, 255, 0.1)');
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(centerX, centerY, currentRadius, 0, Math.PI * 2);
+            canvasCtx.fillStyle = coreGradient;
+            canvasCtx.fill();
+            
+            // Draw intense spiral lines
+            canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            canvasCtx.lineWidth = 3;
+            for (let i = 0; i < 6; i++) {
+                canvasCtx.beginPath();
+                for (let angle = 0; angle < Math.PI * 6; angle += 0.05) {
+                    const radius = (angle / (Math.PI * 6)) * currentRadius;
+                    const x = centerX + Math.cos(angle + (data1.angle + data2.angle)/2 + i * Math.PI * 2/6) * radius;
+                    const y = centerY + Math.sin(angle + (data1.angle + data2.angle)/2 + i * Math.PI * 2/6) * radius;
+                    
+                    if (angle === 0) {
+                        canvasCtx.moveTo(x, y);
+                    } else {
+                        canvasCtx.lineTo(x, y);
+                    }
+                }
+                canvasCtx.stroke();
+            }
+            
+            // Update and draw particles
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.update(centerX, centerY, currentRadius, rotationSpeed);
+                p.draw(canvasCtx);
+            });
+            
+            // Limit particles
+            if (particles.length > 300) {
+                particles = particles.slice(-300);
+            }
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
