@@ -28,5 +28,5 @@ Built with **HTML5 Canvas**, **JavaScript**, and **MediaPipe Hands**.
 ## 📥 How to Install & Run Locally
 
    ```bash
-   git clone https://github.com/YOUR_USERNAME/naruto-rasengan.git
+   git clone https://github.com/semmytaju/naruto-rasengan.git
    cd naruto-rasengan
